@@ -50,15 +50,223 @@ function populateBooks(){const sel=document.getElementById('bibleBook');if(!sel)
 function versionLabel(v){return {KJV:'KJV — King James Version',NKJV:'NKJV — New King James Version',AMP:'AMP — Amplified Bible',NIV:'NIV — New International Version',ESV:'ESV — English Standard Version',NLT:'NLT — New Living Translation',HIL:'Hiligaynon Bible',TAG:'Filipino / Tagalog Bible'}[v]||v}
 function currentVersion(){const l=localStorage.getItem('appLanguage')||'EN';if(l==='HIL')return 'HIL';if(l==='TAG')return 'TAG';const v=localStorage.getItem('defaultBibleVersion')||'KJV';return ['KJV','NKJV','NIV','NLT'].includes(v)?v:'KJV'}
 function currentVerses(){return window.loadedBibleVerses||bibleSamples[currentVersion()]||bibleSamples.KJV}
-function updateDayScripture(){const v=currentVersion(),x=(bibleSamples[v]||bibleSamples.KJV)[0];document.getElementById('dayVersion').textContent=versionLabel(v);document.getElementById('dayVerse').textContent='“'+x[1]+'”';document.getElementById('dayRef').textContent=bookName('Philippians')+' '+x[0]}
-const CHAPTER_COUNTS={"Genesis":50,"Exodus":40,"Leviticus":27,"Numbers":36,"Deuteronomy":34,"Joshua":24,"Judges":21,"Ruth":4,"1 Samuel":31,"2 Samuel":24,"1 Kings":22,"2 Kings":25,"1 Chronicles":29,"2 Chronicles":36,"Ezra":10,"Nehemiah":13,"Esther":10,"Job":42,"Psalm":150,"Proverbs":31,"Ecclesiastes":12,"Song of Solomon":8,"Isaiah":66,"Jeremiah":52,"Lamentations":5,"Ezekiel":48,"Daniel":12,"Hosea":14,"Joel":3,"Amos":9,"Obadiah":1,"Jonah":4,"Micah":7,"Nahum":3,"Habakkuk":3,"Zephaniah":3,"Haggai":2,"Zechariah":14,"Malachi":4,"Matthew":28,"Mark":16,"Luke":24,"John":21,"Acts":28,"Romans":16,"1 Corinthians":16,"2 Corinthians":13,"Galatians":6,"Ephesians":6,"Philippians":4,"Colossians":5,"1 Thessalonians":3,"2 Thessalonians":6,"1 Timothy":4,"2 Timothy":3,"Titus":1,"Philemon":1,"Hebrews":13,"James":5,"1 Peter":5,"2 Peter":3,"1 John":5,"2 John":1,"3 John":1,"Jude":1};
+function homeExactVerseText(text, verseNumber, nextVerseNumber){
+  let t=stripBibleMarkup(text).replace(/\s+/g,' ').trim();
+  if(!t)return '';
+  // If a source accidentally attached the next verse to this verse, keep only
+  // the requested verse for the Home Scripture card.
+  if(nextVerseNumber){
+    const re=new RegExp('(?:^|\\s)'+nextVerseNumber+'(?:[.)]|:)\\s+');
+    const m=t.match(re);
+    if(m && m.index>0)t=t.slice(0,m.index).trim();
+  }
+  t=t.replace(new RegExp('^'+verseNumber+'(?:[.)]|:)\\s+'),'').trim();
+  return t;
+}
+
+async function updateDayScripture(){
+  const v=currentVersion();
+  const dayVersion=document.getElementById('dayVersion');
+  const dayVerse=document.getElementById('dayVerse');
+  const dayRef=document.getElementById('dayRef');
+  const book='Philippians', ch=1;
+  // Scripture of the Day supports one, two, or three verses.
+  // Change only these two numbers when a different daily passage is desired.
+  const scriptureStart=9, scriptureEnd=11;
+  const rangeLabel=scriptureStart===scriptureEnd
+    ? String(scriptureStart)
+    : scriptureStart+'–'+scriptureEnd;
+  dayVersion.textContent=versionLabel(v);
+  dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+
+  const showVerses=(verses)=>{
+    if(!Array.isArray(verses)||!verses.length)return false;
+    const selected=[];
+    for(let n=scriptureStart;n<=scriptureEnd;n++){
+      const row=verses.find(x=>String(x[0])===ch+':'+n);
+      if(row&&row[1]){
+        const next=n<scriptureEnd?n+1:null;
+        const text=homeExactVerseText(row[1],n,next);
+        if(text)selected.push(text);
+      }
+    }
+    if(selected.length){
+      dayVerse.textContent='“'+selected.join(' ')+'”';
+      dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+      return true;
+    }
+    return false;
+  };
+
+  // First use real Bible text already cached by the Bible screen.
+  const cacheKey=(v==='HIL')
+    ? 'hilBible:'+book+':'+ch
+    : (v==='NKJV'||v==='NIV'||v==='NLT')
+      ? 'apiBible:v32:'+v.toLowerCase()+':'+book+':'+ch
+      : 'getBible:'+(v==='TAG'?'tagalog':v==='KJV'?'kjv':v.toLowerCase())+':'+book+':'+ch;
+
+  try{
+    const cached=localStorage.getItem(cacheKey);
+    if(cached){
+      const parsed=JSON.parse(cached);
+      const verses=Array.isArray(parsed)?parsed:parsed.verses;
+      if(showVerses(verses))return;
+    }
+  }catch(e){}
+
+  // Fetch the same real text used by the Bible screen for licensed English versions.
+  if(v==='NKJV'||v==='NIV'||v==='NLT'){
+    try{
+      const apiVersion=v.toLowerCase();
+      const apiBook=API_BIBLE_BOOK_IDS[book];
+      const response=await fetch(API_BIBLE_WORKER+'/bible/'+apiVersion+'/'+apiBook+'/'+ch);
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const result=await response.json();
+      const content=(result&&result.data&&result.data.content)||result&&result.content||'';
+      const verses=(selectedVersion==='NIV')?parseNIVBibleContent(content,ch):parseApiBibleContent(content,ch);
+      if(showVerses(verses)){
+        try{localStorage.setItem('apiBible:v33:'+apiVersion+':'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result&&result.data&&result.data.copyright)||''}))}catch(e){}
+        return;
+      }
+    }catch(e){}
+  }
+
+  // Fetch real Hiligaynon text from the same source used by the Bible screen.
+  if(v==='HIL'){
+    try{
+      const url='https://api.midvash.com/v1/ocv-hil/'+encodeURIComponent(midvashBookSlug(book))+'/'+ch;
+      const response=await fetch(url,{headers:{'Accept':'application/json'}});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const result=await response.json();
+      const data=result&&result.data;
+      const verses=Array.isArray(data&&data.verses)
+        ? data.verses.map((x,i)=>{
+            const n=x&&typeof x==='object'?(x.verse||x.number||x.id||i+1):i+1;
+            const tx=x&&typeof x==='object'?(x.text||x.content||x.verseText||''):x;
+            return ['1:'+n,stripBibleMarkup(tx)];
+          }).filter(x=>x[1])
+        : [];
+      if(showVerses(verses)){
+        try{localStorage.setItem('hilBible:'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result.meta&&result.meta.copyright)||''}))}catch(e){}
+        return;
+      }
+    }catch(e){}
+  }
+
+  // KJV/Tagalog can use real cached text if it has already been loaded.
+  try{
+    const fallbackKey=v==='TAG'?'getBible:tagalog:'+book+':'+ch:'getBible:kjv:'+book+':'+ch;
+    const cached=localStorage.getItem(fallbackKey);
+    if(cached){
+      const parsed=JSON.parse(cached);
+      const verses=Array.isArray(parsed)?parsed:parsed.verses;
+      if(showVerses(verses))return;
+    }
+  }catch(e){}
+
+  // Final offline fallback. Keep the reference consistent with the displayed range.
+  const sample=(bibleSamples[v]||bibleSamples.KJV)[0];
+  dayVerse.textContent='“'+sample[1]+'”';
+  dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+}
+
+const CHAPTER_COUNTS={"Genesis":50,"Exodus":40,"Leviticus":27,"Numbers":36,"Deuteronomy":34,"Joshua":24,"Judges":21,"Ruth":4,"1 Samuel":31,"2 Samuel":24,"1 Kings":22,"2 Kings":25,"1 Chronicles":29,"2 Chronicles":36,"Ezra":10,"Nehemiah":13,"Esther":10,"Job":42,"Psalm":150,"Proverbs":31,"Ecclesiastes":12,"Song of Solomon":8,"Isaiah":66,"Jeremiah":52,"Lamentations":5,"Ezekiel":48,"Daniel":12,"Hosea":14,"Joel":3,"Amos":9,"Obadiah":1,"Jonah":4,"Micah":7,"Nahum":3,"Habakkuk":3,"Zephaniah":3,"Haggai":2,"Zechariah":14,"Malachi":4,"Matthew":28,"Mark":16,"Luke":24,"John":21,"Acts":28,"Romans":16,"1 Corinthians":16,"2 Corinthians":13,"Galatians":6,"Ephesians":6,"Philippians":4,"Colossians":5,"1 Thessalonians":3,"2 Thessalonians":6,"1 Timothy":4,"2 Timothy":3,"Titus":1,"Philemon":1,"Hebrews":13,"James":5,"1 Peter":5,"2 Peter":3,"1 John":5,"2 John":1,"3 John":1,"Jude":1,"Revelation":22};
 function populateChapters(){pageSelected=[];const book=document.getElementById('bibleBook');const c=document.getElementById('bibleChapter');if(!book||!c)return;const max=CHAPTER_COUNTS[book.value]||1;const previous=Number(c.value)||1;c.innerHTML=Array.from({length:max},(_,i)=>'<option value="'+(i+1)+'">'+(i+1)+'</option>').join('');c.value=String(Math.min(previous,max));if(!c.value)c.value='1';renderBibleChapter()}
 async function renderBibleChapter(){const lang=localStorage.getItem('appLanguage')||'EN',ch=Number(document.getElementById('bibleChapter').value||1),book=document.getElementById('bibleBook').value,heading=document.getElementById('chapterHeading'),container=document.getElementById('chapterVerses');heading.textContent=bookName(book)+' '+ch;document.getElementById('addBibleSelectedBtn').classList.toggle('hidden',!activeCreateSession);
-if(lang==='HIL'){const cacheKey='hilBible:'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){window.loadedBibleVerses=parsed.verses;renderBibleRows(parsed.verses,book,heading,container,parsed.copyright);return}}}catch(e){}container.innerHTML='<div class="muted small">Nagakarga sang kapitulo sang Biblia…</div>';try{const url='https://api.midvash.com/v1/ocv-hil/'+encodeURIComponent(midvashBookSlug(book))+'/'+ch;const response=await fetch(url,{headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const data=result&&result.data;const verses=Array.isArray(data&&data.verses)?data.verses.map((v,i)=>{const n=(v&&typeof v==='object')?(v.verse||v.number||v.id||i+1):i+1;const tx=(v&&typeof v==='object')?(v.text||v.content||v.verseText||''):v;return [ch+':'+n,stripBibleMarkup(tx)]}).filter(v=>v[1]):[];if(!verses.length)throw new Error('No verses');const copyright=(result.meta&&result.meta.copyright)||'Biblica® Libre Ang Pulong Sang Dios™ — Copyright © 1996, 2006, 2011, 2022 sang Biblica, Inc. CC BY-SA 4.0';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">'+hilBibleLoadError()+'</div>'}return}
-const selectedVersion=currentVersion();if(lang!=='TAG'&&['NKJV','NIV','NLT'].includes(selectedVersion)){const apiVersion=selectedVersion.toLowerCase(),apiBook=API_BIBLE_BOOK_IDS[book],cacheKey='apiBible:'+apiVersion+':'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){window.loadedBibleVerses=parsed.verses;renderBibleRows(parsed.verses,book,heading,container,parsed.copyright||'');return}}}catch(e){}container.innerHTML='<div class="muted small">Loading Bible chapter…</div>';try{if(!apiBook)throw new Error('Unknown book');const response=await fetch(API_BIBLE_WORKER+'/bible/'+apiVersion+'/'+apiBook+'/'+ch);if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const content=result&&result.data&&result.data.content||result&&result.content||'';const verses=parseApiBibleContent(content,ch);if(!verses.length)throw new Error('No verses');const copyright=(result&&result.data&&result.data.copyright)||'';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">The Bible chapter could not be loaded. Please check your internet connection and try again.</div>'}return}const version=(lang==='TAG')?'tagalog':(selectedVersion==='KJV'?'kjv':selectedVersion.toLowerCase());const cacheKey='getBible:'+version+':'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){window.loadedBibleVerses=parsed.verses;renderBibleRows(parsed.verses,book,heading,container,parsed.copyright||'');return}}}catch(e){}container.innerHTML='<div class="muted small">'+(lang==='TAG'?'Naglo-load ng kabanata ng Biblia…':'Loading Bible chapter…')+'</div>';try{const bookNo=getBibleBookNumber(book);if(!bookNo)throw new Error('Unknown book');const url='https://api.getbible.net/v2/'+version+'/'+bookNo+'/'+ch+'.json';const response=await fetch(url,{headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const raw=Array.isArray(result.verses)?result.verses:(result.data&&Array.isArray(result.data.verses)?result.data.verses:[]);const verses=raw.map((v,i)=>{const n=(v&&typeof v==='object')?(v.verse||v.number||v.id||i+1):i+1;const tx=(v&&typeof v==='object')?(v.text||v.content||v.verseText||''):v;return [ch+':'+n,stripBibleMarkup(tx)]}).filter(v=>v[1]);if(!verses.length)throw new Error('No verses');const copyright=(result.meta&&result.meta.copyright)||result.copyright||'';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">'+(lang==='TAG'?'Hindi ma-load ang kabanata ng Biblia. Pakisuri ang iyong koneksyon sa internet at subukan muli.':'The Bible chapter could not be loaded. Please check your internet connection and try again.')+'</div>'}}
+if(lang==='HIL'){const cacheKey='hilBible:'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){const rows=normalizeBibleVerses(parsed.verses,ch);if(rows.length){if(Number(rows[0][0].split(':')[1])!==1){localStorage.removeItem(cacheKey)}else{window.loadedBibleVerses=rows;renderBibleRows(rows,book,heading,container,parsed.copyright);return}}}}}catch(e){}container.innerHTML='<div class="muted small">Nagakarga sang kapitulo sang Biblia…</div>';try{const url='https://api.midvash.com/v1/ocv-hil/'+encodeURIComponent(midvashBookSlug(book))+'/'+ch;const response=await fetch(url,{headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const data=result&&result.data;const verses=Array.isArray(data&&data.verses)?normalizeBibleVerses(data.verses.map((v,i)=>{const n=(v&&typeof v==='object')?(v.verse||v.number||v.id||i+1):i+1;const tx=(v&&typeof v==='object')?(v.text||v.content||v.verseText||''):v;return [ch+':'+n,stripBibleMarkup(tx)]}).filter(v=>v[1]),ch):[];if(!verses.length)throw new Error('No verses');const copyright=(result.meta&&result.meta.copyright)||'Biblica® Libre Ang Pulong Sang Dios™ — Copyright © 1996, 2006, 2011, 2022 sang Biblica, Inc. CC BY-SA 4.0';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">'+hilBibleLoadError()+'</div>'}return}
+const selectedVersion=currentVersion();if(lang!=='TAG'&&['NKJV','NIV','NLT'].includes(selectedVersion)){const apiVersion=selectedVersion.toLowerCase(),apiBook=API_BIBLE_BOOK_IDS[book],cacheKey='apiBible:v35:'+apiVersion+':'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){const rows=normalizeBibleVerses(parsed.verses,ch);if(rows.length){window.loadedBibleVerses=rows;renderBibleRows(rows,book,heading,container,parsed.copyright||'');return}}}}catch(e){}container.innerHTML='<div class="muted small">Loading Bible chapter…</div>';try{if(!apiBook)throw new Error('Unknown book');const response=await fetch(API_BIBLE_WORKER+'/bible/'+apiVersion+'/'+apiBook+'/'+ch);if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const content=result&&result.data&&result.data.content||result&&result.content||'';const verses=(selectedVersion==='NIV')?parseNIVBibleContent(content,ch):parseApiBibleContent(content,ch);if(!verses.length)throw new Error('No verses');const copyright=(result&&result.data&&result.data.copyright)||'';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">The Bible chapter could not be loaded. Please check your internet connection and try again.</div>'}return}const version=(lang==='TAG')?'tagalog':(selectedVersion==='KJV'?'kjv':selectedVersion.toLowerCase());const cacheKey='getBible:'+version+':'+book+':'+ch;try{const cached=localStorage.getItem(cacheKey);if(cached){const parsed=JSON.parse(cached);if(Array.isArray(parsed.verses)&&parsed.verses.length){const rows=normalizeBibleVerses(parsed.verses,ch);if(rows.length){window.loadedBibleVerses=rows;renderBibleRows(rows,book,heading,container,parsed.copyright||'');return}}}}catch(e){}container.innerHTML='<div class="muted small">'+(lang==='TAG'?'Naglo-load ng kabanata ng Biblia…':'Loading Bible chapter…')+'</div>';try{const bookNo=getBibleBookNumber(book);if(!bookNo)throw new Error('Unknown book');const url='https://api.getbible.net/v2/'+version+'/'+bookNo+'/'+ch+'.json';const response=await fetch(url,{headers:{'Accept':'application/json'}});if(!response.ok)throw new Error('HTTP '+response.status);const result=await response.json();const raw=Array.isArray(result.verses)?result.verses:(result.data&&Array.isArray(result.data.verses)?result.data.verses:[]);const verses=normalizeBibleVerses(raw.map((v,i)=>{const n=(v&&typeof v==='object')?(v.verse||v.number||v.id||i+1):i+1;const tx=(v&&typeof v==='object')?(v.text||v.content||v.verseText||''):v;return [ch+':'+n,stripBibleMarkup(tx)]}).filter(v=>v[1]),ch);if(!verses.length)throw new Error('No verses');const copyright=(result.meta&&result.meta.copyright)||result.copyright||'';window.loadedBibleVerses=verses;try{localStorage.setItem(cacheKey,JSON.stringify({verses,copyright}))}catch(e){}renderBibleRows(verses,book,heading,container,copyright)}catch(e){window.loadedBibleVerses=[];container.innerHTML='<div class="empty">'+(lang==='TAG'?'Hindi ma-load ang kabanata ng Biblia. Pakisuri ang iyong koneksyon sa internet at subukan muli.':'The Bible chapter could not be loaded. Please check your internet connection and try again.')+'</div>'}}
 const API_BIBLE_WORKER='https://jilc-bible-api.erwinalcamphorjr.workers.dev';
 const API_BIBLE_BOOK_IDS={"Genesis":"GEN","Exodus":"EXO","Leviticus":"LEV","Numbers":"NUM","Deuteronomy":"DEU","Joshua":"JOS","Judges":"JDG","Ruth":"RUT","1 Samuel":"1SA","2 Samuel":"2SA","1 Kings":"1KI","2 Kings":"2KI","1 Chronicles":"1CH","2 Chronicles":"2CH","Ezra":"EZR","Nehemiah":"NEH","Esther":"EST","Job":"JOB","Psalm":"PSA","Proverbs":"PRO","Ecclesiastes":"ECC","Song of Solomon":"SNG","Isaiah":"ISA","Jeremiah":"JER","Lamentations":"LAM","Ezekiel":"EZK","Daniel":"DAN","Hosea":"HOS","Joel":"JOL","Amos":"AMO","Obadiah":"OBA","Jonah":"JON","Micah":"MIC","Nahum":"NAM","Habakkuk":"HAB","Zephaniah":"ZEP","Haggai":"HAG","Zechariah":"ZEC","Malachi":"MAL","Matthew":"MAT","Mark":"MRK","Luke":"LUK","John":"JHN","Acts":"ACT","Romans":"ROM","1 Corinthians":"1CO","2 Corinthians":"2CO","Galatians":"GAL","Ephesians":"EPH","Philippians":"PHP","Colossians":"COL","1 Thessalonians":"1TH","2 Thessalonians":"2TH","1 Timothy":"1TI","2 Timothy":"2TI","Titus":"TIT","Philemon":"PHM","Hebrews":"HEB","James":"JAS","1 Peter":"1PE","2 Peter":"2PE","1 John":"1JN","2 John":"2JN","3 John":"3JN","Jude":"JUD","Revelation":"REV"};
-function parseApiBibleContent(content,ch){const html=String(content||'');if(!html.trim())return [];const doc=new DOMParser().parseFromString('<div>'+html+'</div>','text/html');const root=doc.body.firstElementChild||doc.body;const spans=[...root.querySelectorAll('.verse-span[data-verse-id]')];const groups=new Map();for(const span of spans){const id=span.getAttribute('data-verse-id')||'';const m=id.match(/\.(\d+)$/);const num=m?m[1]:'';if(!num)continue;let tx=span.textContent.replace(/^\s*\d+\s*/, '').replace(/\s+/g,' ').trim();if(!tx)continue;if(!groups.has(num))groups.set(num,[]);groups.get(num).push(tx)}return [...groups.entries()].map(([num,texts])=>[ch+':'+num,texts.join(' ').replace(/\s+/g,' ').trim()]).filter(v=>v[1])}
+function normalizeBibleVerses(rows,ch){return (Array.isArray(rows)?rows:[]).map((v,i)=>{if(!Array.isArray(v)||v.length<2)return null;let ref=String(v[0]||'');let m=ref.match(/(?:^|:)(\d+)$/);let n=m?Number(m[1]):(i+1);let tx=stripBibleMarkup(String(v[1]||'')).replace(/\s+/g,' ').trim();return tx&&Number.isFinite(n)?[ch+':'+n,tx]:null}).filter(Boolean).sort((a,b)=>Number(a[0].split(':')[1])-Number(b[0].split(':')[1]))}
+function parseNIVBibleContent(content,ch){
+  const html=String(content||'');
+  if(!html.trim())return [];
+  const doc=new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
+  const root=doc.body.firstElementChild||doc.body;
+  const groups=new Map();
+  const add=(num,text)=>{
+    num=Number(num);
+    let t=stripBibleMarkup(String(text||'')).replace(/\s+/g,' ').trim();
+    if(!Number.isFinite(num)||num<1||!t)return;
+    if(!groups.has(num))groups.set(num,[]);
+    groups.get(num).push(t);
+  };
+  const verseNumberFromId=(value)=>{
+    const m=String(value||'').match(new RegExp('(?:^|[.])'+String(ch)+'[.]([0-9]+)$'));
+    return m?Number(m[1]):null;
+  };
+  const verseNumberFromVid=(value)=>{
+    const m=String(value||'').match(new RegExp('\\b'+String(ch)+'\\s*:\\s*([0-9]+)\\b'));
+    return m?Number(m[1]):null;
+  };
+  const walker=doc.createTreeWalker(root,NodeFilter.SHOW_TEXT);
+  let node;
+  while(node=walker.nextNode()){
+    const text=String(node.nodeValue||'');
+    if(!text.trim())continue;
+    const parent=node.parentElement;
+    if(!parent)continue;
+    // The small .v element contains only the printed verse number. Never
+    // treat that number itself as verse content.
+    if(parent.closest('.v,[data-number]'))continue;
+    const verseEl=parent.closest('.verse-span[data-verse-id]');
+    if(verseEl){
+      const num=verseNumberFromId(verseEl.getAttribute('data-verse-id'));
+      if(num!=null)add(num,text);
+      continue;
+    }
+    // Some NIV paragraphs continue a verse outside the verse-span. The
+    // paragraph's data-vid identifies which verse owns that text.
+    const vidEl=parent.closest('[data-vid]');
+    if(vidEl){
+      const num=verseNumberFromVid(vidEl.getAttribute('data-vid'));
+      if(num!=null)add(num,text);
+    }
+  }
+  const rows=[];
+  for(const [num,parts] of groups.entries()){
+    // Adjacent text nodes belonging to one verse are legitimate. Remove only
+    // exact duplicate fragments, preserving their original document order.
+    const seen=new Set();
+    const cleanParts=[];
+    for(let part of parts){
+      part=part.replace(/^\s*[0-9]{1,3}[.)]?\s*/,'').trim();
+      if(!part||seen.has(part))continue;
+      seen.add(part);
+      cleanParts.push(part);
+    }
+    const text=cleanParts.join(' ').replace(/\s+([,.;!?])/g,'$1').trim();
+    if(text)rows.push([ch+':'+num,text]);
+  }
+  return normalizeBibleVerses(rows,ch);
+}
+
+function parseApiBibleContent(content,ch){
+  const html=String(content||'');
+  if(!html.trim())return [];
+  const doc=new DOMParser().parseFromString('<div>'+html+'</div>','text/html');
+  const root=doc.body.firstElementChild||doc.body;
+  const groups=new Map();
+  const add=(num,text)=>{
+    num=Number(num);
+    text=stripBibleMarkup(String(text||'')).replace(/\s+/g,' ').trim();
+    if(!Number.isFinite(num)||num<1||!text)return;
+    if(!groups.has(num))groups.set(num,[]);
+    const arr=groups.get(num);
+    if(!arr.includes(text))arr.push(text);
+  };
+  const nodes=[...root.querySelectorAll('.verse-span[data-verse-id]')];
+  for(const node of nodes){
+    const m=String(node.getAttribute('data-verse-id')||'').match(/(?:^|[.\-_:\s])(?:v(?:erse)?[._\-:]?)?(\d+)$/i);
+    if(!m)continue;
+    const num=Number(m[1]);
+    let tx=node.textContent||'';
+    if(node.querySelector('.v,[data-number]'))tx=tx.replace(/^\s*\d{1,3}\s*/,'');
+    if(tx.trim())add(num,tx);
+  }
+  return normalizeBibleVerses([...groups.entries()].map(([num,texts])=>[ch+':'+num,texts.join(' ')]),ch);
+}
+
 function getBibleBookNumber(book){const books=["Genesis","Exodus","Leviticus","Numbers","Deuteronomy","Joshua","Judges","Ruth","1 Samuel","2 Samuel","1 Kings","2 Kings","1 Chronicles","2 Chronicles","Ezra","Nehemiah","Esther","Job","Psalm","Proverbs","Ecclesiastes","Song of Solomon","Isaiah","Jeremiah","Lamentations","Ezekiel","Daniel","Hosea","Joel","Amos","Obadiah","Jonah","Micah","Nahum","Habakkuk","Zephaniah","Haggai","Zechariah","Malachi","Matthew","Mark","Luke","John","Acts","Romans","1 Corinthians","2 Corinthians","Galatians","Ephesians","Philippians","Colossians","1 Thessalonians","2 Thessalonians","1 Timothy","2 Timothy","Titus","Philemon","Hebrews","James","1 Peter","2 Peter","1 John","2 John","3 John","Jude","Revelation"];const i=books.indexOf(book);return i>=0?i+1:null}
 function midvashBookSlug(book){const map={"Genesis":"genesis","Exodus":"exodus","Leviticus":"leviticus","Numbers":"numbers","Deuteronomy":"deuteronomy","Joshua":"joshua","Judges":"judges","Ruth":"ruth","1 Samuel":"1-samuel","2 Samuel":"2-samuel","1 Kings":"1-kings","2 Kings":"2-kings","1 Chronicles":"1-chronicles","2 Chronicles":"2-chronicles","Ezra":"ezra","Nehemiah":"nehemiah","Esther":"esther","Job":"job","Psalm":"psalms","Proverbs":"proverbs","Ecclesiastes":"ecclesiastes","Song of Solomon":"song-of-solomon","Isaiah":"isaiah","Jeremiah":"jeremiah","Lamentations":"lamentations","Ezekiel":"ezekiel","Daniel":"daniel","Hosea":"hosea","Joel":"joel","Amos":"amos","Obadiah":"obadiah","Jonah":"jonah","Micah":"micah","Nahum":"nahum","Habakkuk":"habakkuk","Zephaniah":"zephaniah","Haggai":"haggai","Zechariah":"zechariah","Malachi":"malachi","Matthew":"matthew","Mark":"mark","Luke":"luke","John":"john","Acts":"acts","Romans":"romans","1 Corinthians":"1-corinthians","2 Corinthians":"2-corinthians","Galatians":"galatians","Ephesians":"ephesians","Philippians":"philippians","Colossians":"colossians","1 Thessalonians":"1-thessalonians","2 Thessalonians":"2-thessalonians","1 Timothy":"1-timothy","2 Timothy":"2-timothy","Titus":"titus","Philemon":"philemon","Hebrews":"hebrews","James":"james","1 Peter":"1-peter","2 Peter":"2-peter","1 John":"1-john","2 John":"2-john","3 John":"3-john","Jude":"jude","Revelation":"revelation"};return map[book]||book.toLowerCase().replace(/\s+/g,'-')}
 function stripBibleMarkup(text){return String(text||'').replace(/<[^>]*>/g,'').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim()}
