@@ -102,7 +102,7 @@ async function updateDayScripture(){
   const cacheKey=(v==='HIL')
     ? 'hilBible:'+book+':'+ch
     : (v==='NKJV'||v==='NIV'||v==='NLT')
-      ? 'apiBible:v35:'+v.toLowerCase()+':'+book+':'+ch
+      ? 'apiBible:v32:'+v.toLowerCase()+':'+book+':'+ch
       : 'getBible:'+(v==='TAG'?'tagalog':v==='KJV'?'kjv':v.toLowerCase())+':'+book+':'+ch;
 
   try{
@@ -123,9 +123,9 @@ async function updateDayScripture(){
       if(!response.ok)throw new Error('HTTP '+response.status);
       const result=await response.json();
       const content=(result&&result.data&&result.data.content)||result&&result.content||'';
-      const verses=(v==='NIV')?parseNIVBibleContent(content,ch):parseApiBibleContent(content,ch);
+      const verses=(selectedVersion==='NIV')?parseNIVBibleContent(content,ch):parseApiBibleContent(content,ch);
       if(showVerses(verses)){
-        try{localStorage.setItem('apiBible:v35:'+apiVersion+':'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result&&result.data&&result.data.copyright)||''}))}catch(e){}
+        try{localStorage.setItem('apiBible:v33:'+apiVersion+':'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result&&result.data&&result.data.copyright)||''}))}catch(e){}
         return;
       }
     }catch(e){}
