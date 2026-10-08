@@ -34,7 +34,7 @@ textarea{resize:vertical}
 <div class="app">
 <header class="top"><div id="brand" class="brand">✦ Devotional</div><div class="church-header" aria-label="Jesus Is Lord Church, Bacolod City Chapter"><span>Jesus Is Lord Church</span><span>Bacolod City Chapter</span></div></header>
 <main>
-<section id="home" class="screen active"><div class="hero"><div id="welcomeGreeting" class="welcome-greeting">You are blessed ERWIN!</div><div class="eyebrow" id="dayLabel">Scripture of the Day</div><div id="todayDate" class="muted small" style="color:rgba(255,255,255,.82);margin-top:4px"></div><h1 id="dayTitle">Trust God With Your Whole Heart</h1><div id="dayVersion" class="muted small" style="margin-bottom:10px">KJV — King James Version</div><div id="dayVerse" class="verse">“And this I pray, that your love may abound yet more and more in knowledge and in all judgment;”</div><div id="dayRef" class="ref">Philippians 1:9</div><div class="row" style="margin-top:16px"><button id="readDayBtn" class="btn secondary" onclick="readDayScripture()">📖 Read in Bible</button></div></div><div class="sectiontitle"><h2 id="recentTitle">My Recent Devotionals</h2><button id="newBtn" class="btn secondary" onclick="newDevotional()">＋ New</button></div><div id="recent"></div></section>
+<section id="home" class="screen active"><div class="hero"><div id="welcomeGreeting" class="welcome-greeting">You are blessed ERWIN!</div><div class="eyebrow" id="dayLabel">Scripture of the Day</div><div id="todayDate" class="muted small" style="color:rgba(255,255,255,.82);margin-top:4px"></div><h1 id="dayTitle">Trust God With Your Whole Heart</h1><div id="dayVersion" class="muted small" style="margin-bottom:10px">KJV — King James Version</div><div id="dayVerse" class="verse">“And this I pray, that your love may abound yet more and more in knowledge and in all judgment;”</div><div id="dayRef" class="ref">Philippians 1:9</div><div class="row" style="margin-top:16px"><button id="readDayBtn" class="btn secondary" onclick="readDayScripture()">📖 Read in Bible</button></div></div><div id="yesterdayScriptureCard" class="card" style="margin-top:0"><div id="yesterdayScriptureLabel" class="label" style="margin-top:0">Yesterday's Scripture</div><div id="yesterdayScriptureRef" class="ref" style="margin-top:0">Philippians 1:9–11</div></div><div class="sectiontitle"><h2 id="recentTitle">My Recent Devotionals</h2><button id="newBtn" class="btn secondary" onclick="newDevotional()">＋ New</button></div><div id="recent"></div></section>
 <section id="bible" class="screen"><div class="sectiontitle"><h2 id="bibleTitle">📖 Bible</h2></div><div id="bibleBookLabel" class="label">Book</div><select id="bibleBook" onchange="document.getElementById('bibleChapter').value='1';populateChapters()"></select><div id="bibleChapterLabel" class="label">Chapter</div><select id="bibleChapter" onchange="renderBibleChapter()"></select><div id="chapterHeading" class="bible-heading">Philippians 1</div><div id="chapterVerses" class="bible-reading"></div><button id="addBibleSelectedBtn" class="btn primary hidden" style="width:100%;margin-top:14px" onclick="addBiblePageSelected()">Add Selected Scripture</button></section>
 <section id="create" class="screen"><div class="sectiontitle"><h2 id="createTitle">Create Devotional</h2><div id="devDate" class="muted small"></div></div><div id="createScriptureLabel" class="label">Scripture</div><textarea id="scripture" placeholder="Write or select your Scripture..."></textarea><button id="addBibleBtn" class="btn secondary smallbtn" onclick="openBibleFromCreate()">📖 Add Scripture from Bible</button><div id="observationLabel" class="label">Observation</div><textarea id="observation" placeholder="What is God teaching through this passage?"></textarea><div id="applicationLabel" class="label">Application</div><textarea id="application" placeholder="How will I live this out today?"></textarea><div id="prayerLabel" class="label">Prayer</div><textarea id="prayer" placeholder="Write your prayer..."></textarea><button id="saveBtn" class="btn primary" style="width:100%;margin-top:14px" onclick="saveDevotional()">Save Devotional</button></section>
 <section id="saved" class="screen"><div class="sectiontitle"><h2 id="savedTitle">Saved Devotionals</h2><button id="clearBtn" class="btn danger" onclick="clearSaved()">Clear</button></div><div class="card" style="margin-top:14px"><div id="savedFilterLabel" class="label" style="margin-top:0">Filter Saved Devotionals</div><div class="label" id="savedDateChooseLabel" style="margin-top:10px">Choose a date</div><div><input id="savedDateFilter" type="date" onchange="filterSaved()" aria-label="Date"></div><button id="clearSavedFilterBtn" class="btn secondary smallbtn" style="margin-top:8px;width:100%" onclick="clearSavedFilter()">Clear Filter</button></div><div id="savedList"></div></section>
@@ -116,15 +116,65 @@ async function updateDayScripture(){
   const dayVersion=document.getElementById('dayVersion');
   const dayVerse=document.getElementById('dayVerse');
   const dayRef=document.getElementById('dayRef');
-  const book='Philippians', ch=1;
-  // Scripture of the Day supports one, two, or three verses.
-  // Change only these two numbers when a different daily passage is desired.
-  const scriptureStart=9, scriptureEnd=11;
+  const yesterdayCard=document.getElementById('yesterdayScriptureCard');
+  const yesterdayLabel=document.getElementById('yesterdayScriptureLabel');
+  const yesterdayRef=document.getElementById('yesterdayScriptureRef');
+
+  // The Home Scripture rotates deterministically by calendar day. The same
+  // Scripture is shown throughout one local day, then a different passage is
+  // selected automatically the next day.
+  const dailyPassages=[
+    ['John',3,16,16],
+    ['Proverbs',3,5,6],
+    ['Philippians',4,6,7],
+    ['Jeremiah',29,11,11],
+    ['Romans',8,28,28],
+    ['Psalm',23,1,3],
+    ['Matthew',11,28,30],
+    ['Isaiah',41,10,10],
+    ['Joshua',1,9,9],
+    ['Psalm',46,1,2],
+    ['Romans',12,1,2],
+    ['Galatians',5,22,23],
+    ['Ephesians',2,8,9],
+    ['2 Timothy',1,7,7],
+    ['Psalm',119,105,105],
+    ['Matthew',6,33,34],
+    ['Psalm',37,4,5],
+    ['Isaiah',40,31,31],
+    ['1 Peter',5,7,7],
+    ['Psalm',34,17,18],
+    ['John',14,1,3],
+    ['Romans',15,13,13],
+    ['Psalm',121,1,2],
+    ['Colossians',3,12,14],
+    ['2 Corinthians',5,17,17],
+    ['James',1,5,5],
+    ['Psalm',27,1,1],
+    ['Matthew',11,28,28],
+    ['Philippians',1,9,11],
+    ['Romans',8,38,39],
+    ['Psalm',91,1,2]
+  ];
+
+  const now=new Date();
+  const dayKey=now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0');
+  const dayNumber=Math.floor(new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime()/86400000);
+  const passage=dailyPassages[((dayNumber%dailyPassages.length)+dailyPassages.length)%dailyPassages.length];
+  const yesterdayIndex=((dayNumber-1)%dailyPassages.length+dailyPassages.length)%dailyPassages.length;
+  const yesterdayPassage=dailyPassages[yesterdayIndex];
+  if(yesterdayRef&&yesterdayPassage){
+    const yBook=yesterdayPassage[0],yCh=yesterdayPassage[1],yStart=yesterdayPassage[2],yEnd=yesterdayPassage[3];
+    yesterdayRef.textContent=bookName(yBook)+' '+yCh+':'+(yStart===yEnd?String(yStart):yStart+'–'+yEnd);
+  }
+  if(yesterdayCard) yesterdayCard.style.display=yesterdayPassage?'block':'none';
+  const [book,ch,scriptureStart,scriptureEnd]=passage;
   const rangeLabel=scriptureStart===scriptureEnd
     ? String(scriptureStart)
     : scriptureStart+'–'+scriptureEnd;
+
   dayVersion.textContent=versionLabel(v);
-  dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+  dayRef.textContent=bookName(book)+' '+ch+':'+rangeLabel;
 
   const showVerses=(verses)=>{
     if(!Array.isArray(verses)||!verses.length)return false;
@@ -139,18 +189,19 @@ async function updateDayScripture(){
     }
     if(selected.length){
       dayVerse.textContent='“'+selected.join(' ')+'”';
-      dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+      dayRef.textContent=bookName(book)+' '+ch+':'+rangeLabel;
       return true;
     }
     return false;
   };
 
-  // First use real Bible text already cached by the Bible screen.
+  // Cache is deliberately tied to the calendar day and selected version so a
+  // previous day's Scripture can never be reused as today's Scripture.
   const cacheKey=(v==='HIL')
-    ? 'hilBible:'+book+':'+ch
+    ? 'hilDailyBible:'+dayKey+':'+book+':'+ch
     : (v==='NKJV'||v==='NIV'||v==='NLT')
-      ? 'apiBible:v39:'+v.toLowerCase()+':'+book+':'+ch
-      : 'getBible:'+(v==='TAG'?'tagalog':v==='KJV'?'kjv':v.toLowerCase())+':'+book+':'+ch;
+      ? 'apiDailyBible:'+dayKey+':'+v.toLowerCase()+':'+book+':'+ch
+      : 'getDailyBible:'+dayKey+':'+(v==='TAG'?'tagalog':v==='KJV'?'kjv':v.toLowerCase())+':'+book+':'+ch;
 
   try{
     const cached=localStorage.getItem(cacheKey);
@@ -161,7 +212,7 @@ async function updateDayScripture(){
     }
   }catch(e){}
 
-  // Fetch the same real text used by the Bible screen for licensed English versions.
+  // English API.Bible versions.
   if(v==='NKJV'||v==='NIV'||v==='NLT'){
     try{
       const apiVersion=v.toLowerCase();
@@ -172,13 +223,13 @@ async function updateDayScripture(){
       const content=(result&&result.data&&result.data.content)||result&&result.content||'';
       const verses=(v==='NIV')?parseNIVBibleContent(content,ch):parseApiBibleContent(content,ch);
       if(showVerses(verses)){
-        try{localStorage.setItem('apiBible:v39:'+apiVersion+':'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result&&result.data&&result.data.copyright)||''}))}catch(e){}
+        try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses,copyright:(result&&result.data&&result.data.copyright)||''}))}catch(e){}
         return;
       }
     }catch(e){}
   }
 
-  // Fetch real Hiligaynon text from the same source used by the Bible screen.
+  // Hiligaynon.
   if(v==='HIL'){
     try{
       const url='https://api.midvash.com/v1/ocv-hil/'+encodeURIComponent(midvashBookSlug(book))+'/'+ch;
@@ -190,31 +241,44 @@ async function updateDayScripture(){
         ? data.verses.map((x,i)=>{
             const n=x&&typeof x==='object'?(x.verse||x.number||x.id||i+1):i+1;
             const tx=x&&typeof x==='object'?(x.text||x.content||x.verseText||''):x;
-            return ['1:'+n,stripBibleMarkup(tx)];
+            return [ch+':'+n,stripBibleMarkup(tx)];
           }).filter(x=>x[1])
         : [];
       if(showVerses(verses)){
-        try{localStorage.setItem('hilBible:'+book+':'+ch,JSON.stringify({verses:verses,copyright:(result.meta&&result.meta.copyright)||''}))}catch(e){}
+        try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses}))}catch(e){}
         return;
       }
     }catch(e){}
   }
 
-  // KJV/Tagalog can use real cached text if it has already been loaded.
+  // KJV / Tagalog.
   try{
-    const fallbackKey=v==='TAG'?'getBible:tagalog:'+book+':'+ch:'getBible:kjv:'+book+':'+ch;
-    const cached=localStorage.getItem(fallbackKey);
-    if(cached){
-      const parsed=JSON.parse(cached);
-      const verses=Array.isArray(parsed)?parsed:parsed.verses;
-      if(showVerses(verses))return;
+    const version=(v==='TAG')?'tagalog':(v==='KJV'?'kjv':v.toLowerCase());
+    const bookNo=getBibleBookNumber(book);
+    if(bookNo){
+      const url='https://api.getbible.net/v2/'+version+'/'+bookNo+'/'+ch+'.json';
+      const response=await fetch(url,{headers:{'Accept':'application/json'}});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const result=await response.json();
+      const raw=Array.isArray(result.verses)?result.verses:(result.data&&Array.isArray(result.data.verses)?result.data.verses:[]);
+      const verses=normalizeBibleVerses(raw.map((item,i)=>{
+        const n=item&&typeof item==='object'?(item.verse||item.number||item.id||i+1):i+1;
+        const tx=item&&typeof item==='object'?(item.text||item.content||item.verseText||''):item;
+        return [ch+':'+n,stripBibleMarkup(tx)];
+      }).filter(x=>x[1]),ch);
+      if(showVerses(verses)){
+        try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses,copyright:(result.meta&&result.meta.copyright)||result.copyright||''}))}catch(e){}
+        return;
+      }
     }
   }catch(e){}
 
-  // Final offline fallback. Keep the reference consistent with the displayed range.
+  // Offline fallback: retain a valid Scripture display rather than showing a
+  // stale previous day's passage. This is only used when today's text cannot
+  // be retrieved from the connected Bible service.
   const sample=(bibleSamples[v]||bibleSamples.KJV)[0];
   dayVerse.textContent='“'+sample[1]+'”';
-  dayRef.textContent=bookName(book)+' 1:'+rangeLabel;
+  dayRef.textContent=bookName(book)+' '+ch+':'+rangeLabel;
 }
 
 const CHAPTER_COUNTS={"Genesis":50,"Exodus":40,"Leviticus":27,"Numbers":36,"Deuteronomy":34,"Joshua":24,"Judges":21,"Ruth":4,"1 Samuel":31,"2 Samuel":24,"1 Kings":22,"2 Kings":25,"1 Chronicles":29,"2 Chronicles":36,"Ezra":10,"Nehemiah":13,"Esther":10,"Job":42,"Psalm":150,"Proverbs":31,"Ecclesiastes":12,"Song of Solomon":8,"Isaiah":66,"Jeremiah":52,"Lamentations":5,"Ezekiel":48,"Daniel":12,"Hosea":14,"Joel":3,"Amos":9,"Obadiah":1,"Jonah":4,"Micah":7,"Nahum":3,"Habakkuk":3,"Zephaniah":3,"Haggai":2,"Zechariah":14,"Malachi":4,"Matthew":28,"Mark":16,"Luke":24,"John":21,"Acts":28,"Romans":16,"1 Corinthians":16,"2 Corinthians":13,"Galatians":6,"Ephesians":6,"Philippians":4,"Colossians":5,"1 Thessalonians":3,"2 Thessalonians":6,"1 Timothy":4,"2 Timothy":3,"Titus":1,"Philemon":1,"Hebrews":13,"James":5,"1 Peter":5,"2 Peter":3,"1 John":5,"2 John":1,"3 John":1,"Jude":1,"Revelation":22};
@@ -385,7 +449,7 @@ function applyLanguage(lang){
   document.documentElement.lang=lang==='HIL'?'hil':lang==='TAG'?'fil':'en';
   document.title=lang==='HIL'?'Devotional App — Prototype':lang==='TAG'?'Devotional App — Prototype':'Devotional App — Phone Prototype v1';
   const set=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
-  set('brand','✦ Devotional'); set('dayLabel', t.scriptureDay); set('todayDate', formatTodayDate()); set('dayTitle', t.dayTitle); set('recentTitle',t.recent); set('newBtn',t.newBtn); set('readDayBtn',t.readBible);
+  set('brand','✦ Devotional'); set('dayLabel', t.scriptureDay); set('todayDate', formatTodayDate()); set('yesterdayScriptureLabel', t.yesterdayScripture||'Yesterday\'s Scripture'); set('dayTitle', t.dayTitle); set('recentTitle',t.recent); set('newBtn',t.newBtn); set('readDayBtn',t.readBible);
   set('bibleTitle','📖 '+t.bible); set('bibleBookLabel',t.book); set('bibleChapterLabel',t.chapter); set('bibleVersesLabel',t.verses); set('addBibleSelectedBtn',t.addSelected);
   set('createTitle',t.createDev); set('createScriptureLabel',t.scripture); set('observationLabel',t.observation); set('applicationLabel',t.application); set('prayerLabel',t.prayer); set('addBibleBtn',t.addBible); set('saveBtn',t.saveDev);
   set('savedTitle',t.saved); set('clearBtn',t.clear); set('savedFilterLabel',t.filterSaved); set('savedDateChooseLabel',t.chooseDate); const df=document.getElementById('savedDateFilter'); if(df) df.setAttribute('aria-label',t.chooseDate); set('clearSavedFilterBtn',t.clearFilter); set('viewScriptureLabel',t.scripture); set('viewObservationLabel',t.observation); set('viewApplicationLabel',t.application); set('viewPrayerLabel',t.prayer); set('prototypeFooter',lang==='HIL'?'Devotional App • Prototype sa Telepono':lang==='TAG'?'Devotional App • Prototype para sa Telepono':'Devotional App • Phone Prototype v1');
