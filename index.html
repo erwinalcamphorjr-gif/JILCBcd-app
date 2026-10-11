@@ -30,7 +30,7 @@ textarea{resize:vertical}
 @media (max-width:430px){.app{max-width:none;box-shadow:none}.top{padding-top:calc(14px + env(safe-area-inset-top));}.screen{padding-left:16px;padding-right:16px}.bottom{padding-bottom:calc(8px + env(safe-area-inset-bottom));}}
 </style></head>
 <body>
-<div id="churchSplash" aria-label="Church logo splash screen"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTAxgebWoNe_gI1-5swLWNRS9AuhxmJxQXXWsrx--l1mA&s=10" alt="Church logo" onerror="this.style.display='none'"><div id="splashAppTitle" class="splash-title">Devotional</div><div class="splash-sub">A moment with God's Word</div></div>
+<div id="churchSplash" aria-label="Church logo splash screen"><img src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTAxgebWoNe_gI1-5swLWNRS9AuhxmJxQXXWsrx--l1mA&s=10" alt="Church logo" onerror="this.style.display='none'"><div class="splash-title">Devotional</div><div class="splash-sub">A moment with God's Word</div></div>
 <div class="app">
 <header class="top"><div id="brand" class="brand">✦ Devotional</div><div class="church-header" aria-label="Jesus Is Lord Church, Bacolod City Chapter"><span>Jesus Is Lord Church</span><span>Bacolod City Chapter</span></div></header>
 <main>
@@ -173,6 +173,9 @@ async function updateDayScripture(){
     yesterdayRef.textContent=bookName(yBook)+' '+yCh+':'+(yStart===yEnd?String(yStart):yStart+'–'+yEnd);
   }
   if(yesterdayCard) yesterdayCard.style.display=yesterdayPassage?'block':'none';
+  // Keep the exact passage used by Home available to the Read button.
+  // This prevents the button from opening a hard-coded, unrelated passage.
+  window.todayDailyPassage=passage;
   const [book,ch,scriptureStart,scriptureEnd]=passage;
   const rangeLabel=scriptureStart===scriptureEnd
     ? String(scriptureStart)
@@ -202,11 +205,9 @@ async function updateDayScripture(){
 
   // Cache is deliberately tied to the calendar day and selected version so a
   // previous day's Scripture can never be reused as today's Scripture.
-  const cacheKey=(v==='CEB'||v==='ILO')
-    ? 'openBibleDaily:'+v.toLowerCase()+':'+dayKey+':'+book+':'+ch
-    : (v==='HIL')
-      ? 'hilDailyBible:'+dayKey+':'+book+':'+ch
-      : (v==='NKJV'||v==='NIV'||v==='NLT')
+  const cacheKey=(v==='HIL')
+    ? 'hilDailyBible:'+dayKey+':'+book+':'+ch
+    : (v==='NKJV'||v==='NIV'||v==='NLT')
       ? 'apiDailyBible:'+dayKey+':'+v.toLowerCase()+':'+book+':'+ch
       : 'getDailyBible:'+dayKey+':'+(v==='TAG'?'tagalog':v==='KJV'?'kjv':v.toLowerCase())+':'+book+':'+ch;
 
@@ -236,27 +237,6 @@ async function updateDayScripture(){
     }catch(e){}
   }
 
-  // Cebuano and Ilokano: use the same language-specific online Bible source as the Bible tab.
-  if(v==='CEB'||v==='ILO'){
-    const code=v==='CEB'?'ceb':'ilo';
-    try{
-      const tr=await findOpenBibleTranslation(code);
-      const apiBook=API_BIBLE_BOOK_IDS[book]||book.toUpperCase();
-      const url='https://bible.helloao.org/api/'+encodeURIComponent(tr.id)+'/'+encodeURIComponent(apiBook)+'/'+ch+'.json';
-      const response=await fetch(url);
-      if(!response.ok)throw new Error('HTTP '+response.status);
-      const result=await response.json();
-      const verses=parseOpenBibleChapter(result,ch);
-      if(showVerses(verses)){
-        try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses,copyright:(result&&result.chapter&&result.chapter.copyright)||(result&&result.copyright)||tr.englishName||''}))}catch(e){}
-        return;
-      }
-    }catch(e){}
-    // Never silently substitute English text for a Cebuano/Ilokano selection.
-    dayVerse.textContent=v==='CEB'?'Dili ma-load ang Cebuano nga Kasulatan. Palihog susiha ang internet connection ug sulayi pag-usab.':'Saan a naikarga ti Kasuratan iti Ilokano. Pakisurot ti koneksiyon ti internet ken padasen manen.';
-    return;
-  }
-
   // Hiligaynon.
   if(v==='HIL'){
     try{
@@ -274,6 +254,24 @@ async function updateDayScripture(){
         : [];
       if(showVerses(verses)){
         try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses}))}catch(e){}
+        return;
+      }
+    }catch(e){}
+  }
+
+  // Cebuano / Ilokano: use the same online Bible translation source as the Bible page.
+  if(v==='CEB'||v==='ILO'){
+    try{
+      const code=v==='CEB'?'ceb':'ilo';
+      const translation=await findOpenBibleTranslation(code);
+      const url='https://bible.helloao.org/api/'+encodeURIComponent(translation.id)+'/'+encodeURIComponent(API_BIBLE_BOOK_IDS[book]||book.toUpperCase())+'/'+ch+'.json';
+      const response=await fetch(url,{headers:{'Accept':'application/json'}});
+      if(!response.ok)throw new Error('HTTP '+response.status);
+      const result=await response.json();
+      const verses=parseOpenBibleChapter(result,ch);
+      if(showVerses(verses)){
+        const copyright=(result&&result.chapter&&result.chapter.copyright)||(result&&result.copyright)||translation.englishName||'';
+        try{localStorage.setItem(cacheKey,JSON.stringify({verses:verses,copyright:copyright}))}catch(e){}
         return;
       }
     }catch(e){}
@@ -304,6 +302,11 @@ async function updateDayScripture(){
   // Offline fallback: retain a valid Scripture display rather than showing a
   // stale previous day's passage. This is only used when today's text cannot
   // be retrieved from the connected Bible service.
+  if(v==='CEB'||v==='ILO') {
+    dayVerse.textContent=(localStorage.getItem(cacheKey)?'':'Unable to load this '+(v==='CEB'?'Cebuano':'Ilokano')+' Scripture. Please check your internet connection and try again.');
+    dayRef.textContent=bookName(book)+' '+ch+':'+rangeLabel;
+    return;
+  }
   const sample=(bibleSamples[v]||bibleSamples.KJV)[0];
   dayVerse.textContent='“'+sample[1]+'”';
   dayRef.textContent=bookName(book)+' '+ch+':'+rangeLabel;
@@ -472,7 +475,7 @@ function toggleBibleVerse(key){if(!activeCreateSession)return;pageSelected.inclu
 function newDevotional(){window.editingDevotionalIndex=null;['scripture','observation','application','prayer'].forEach(id=>document.getElementById(id).value='');setDevotionalDate();show('create')}
 function show(s){document.querySelectorAll('.screen').forEach(e=>e.classList.toggle('active',e.id===s));document.querySelectorAll('.nav').forEach(e=>e.classList.toggle('active',e.dataset.s===s));if(s!=='bible'&&s!=='create')activeCreateSession=false;if(s==='bible'){populateChapters()}if(s==='saved'){renderSaved()}if(s==='churchNotes'){renderChurchNotes();updateChurchNoteDate()}}
 function openBibleFromCreate(){activeCreateSession=true;pageSelected=[];show('bible')}
-function readDayScripture(){activeCreateSession=false;pageSelected=[];show('bible');document.getElementById('bibleBook').value='Philippians';populateChapters();document.getElementById('bibleChapter').value='1';renderBibleChapter()}
+function readDayScripture(){activeCreateSession=false;pageSelected=[];const passage=window.todayDailyPassage;if(!passage){show('bible');return}const [book,ch]=passage;show('bible');document.getElementById('bibleBook').value=book;populateChapters();document.getElementById('bibleChapter').value=String(ch);renderBibleChapter()}
 function addBiblePageSelected(){const t=UI[localStorage.getItem('appLanguage')||'EN']||UI.EN;if(!pageSelected.length){toast(t.selectVerse);return}const verses=window.loadedBibleVerses||currentVerses(),book=document.getElementById('bibleBook').value;const out=pageSelected.map(k=>{const ref=k.split('|')[1],v=verses.find(x=>x[0]===ref);return v?bookName(book)+' '+v[0]+' — '+v[1]:''}).filter(Boolean).join('\n\n');const f=document.getElementById('scripture');f.value=f.value.trim()?f.value.trim()+'\n\n'+out:out;pageSelected=[];activeCreateSession=false;show('create');toast(t.addedMsg)}
 
 // Cebuano and Ilokano interface translations. English is used only for any uncommon legacy key not yet translated.
@@ -500,7 +503,7 @@ function applyLanguage(lang){
   document.documentElement.lang=({EN:'en',HIL:'hil',TAG:'fil',CEB:'ceb',ILO:'ilo'})[lang]||'en';
   document.title='Devotional App — '+({EN:'Phone Prototype v1',HIL:'Prototype sa Telepono',TAG:'Prototype para sa Telepono',CEB:'Prototype sa Telepono',ILO:'Prototype ti Telepono'})[lang];
   const set=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=val};
-  set('brand',lang==='CEB'?'✦ Pagpamalandong':lang==='ILO'?'✦ Panagpanunot':lang==='HIL'?'✦ Pamalandong':lang==='TAG'?'✦ Debosyon':'✦ Devotional'); set('splashAppTitle',lang==='CEB'?'Pagpamalandong':lang==='ILO'?'Panagpanunot':lang==='HIL'?'Pamalandong':lang==='TAG'?'Debosyon':'Devotional'); set('dayLabel', t.scriptureDay); set('todayDate', formatTodayDate()); set('yesterdayScriptureLabel', t.yesterdayScripture||'Yesterday\'s Scripture'); set('dayTitle', t.dayTitle); set('recentTitle',t.recent); set('newBtn',t.newBtn); set('readDayBtn',t.readBible);
+  set('brand',lang==='CEB'?'✦ Pagpamalandong':lang==='ILO'?'✦ Panagpanunot':'✦ Devotional'); set('dayLabel', t.scriptureDay); set('todayDate', formatTodayDate()); set('yesterdayScriptureLabel', t.yesterdayScripture||'Yesterday\'s Scripture'); set('dayTitle', t.dayTitle); set('recentTitle',t.recent); set('newBtn',t.newBtn); set('readDayBtn',t.readBible);
   set('bibleTitle','📖 '+t.bible); set('bibleBookLabel',t.book); set('bibleChapterLabel',t.chapter); set('bibleVersesLabel',t.verses); set('addBibleSelectedBtn',t.addSelected);
   set('createTitle',t.createDev); set('createScriptureLabel',t.scripture); set('observationLabel',t.observation); set('applicationLabel',t.application); set('prayerLabel',t.prayer); set('addBibleBtn',t.addBible); set('saveBtn',t.saveDev);
   set('savedTitle',t.saved); set('clearBtn',t.clear); set('savedFilterLabel',t.filterSaved); set('savedDateChooseLabel',t.chooseDate); const df=document.getElementById('savedDateFilter'); if(df) df.setAttribute('aria-label',t.chooseDate); set('clearSavedFilterBtn',t.clearFilter); set('viewScriptureLabel',t.scripture); set('viewObservationLabel',t.observation); set('viewApplicationLabel',t.application); set('viewPrayerLabel',t.prayer); set('prototypeFooter',lang==='HIL'?'Devotional App • Prototype sa Telepono':lang==='TAG'?'Devotional App • Prototype para sa Telepono':'Devotional App • Phone Prototype v1');
@@ -535,7 +538,7 @@ function clearSavedFilter(){const d=document.getElementById('savedDateFilter');i
 function renderSaved(monthFilter='',dateFilter=''){let a=JSON.parse(localStorage.getItem('devotionals')||'[]');const t=UI[localStorage.getItem('appLanguage')||'EN']||UI.EN;const filtered=a.map((d,i)=>({d,i})).filter(({d})=>{const p=getDevotionalDateParts(d.dateISO||d.date);if(!p)return false;if(dateFilter){const localDate=p.year+'-'+String(p.month+1).padStart(2,'0')+'-'+String(p.day).padStart(2,'0');if(localDate!==dateFilter)return false}return true});document.getElementById('savedList').innerHTML=filtered.length?filtered.map(({d,i})=>`<div class="card"><div class="listitem"><div><b>${esc(formatDevotionalDate(d.dateISO||d.date))}</b></div><div class="saved-actions"><button class="btn secondary saved-icon" aria-label="${t.view}" title="${t.view}" onclick="viewDevotional(${i})">👁</button><button class="btn primary saved-icon" aria-label="${t.edit}" title="${t.edit}" onclick="startEditDevotional(${i})">✎</button><button class="btn danger saved-icon" aria-label="${t.delete}" title="${t.delete}" onclick="removeDev(${i})">×</button></div></div><p>${esc(d.scripture||d.application||d.observation||t.emptyNotes)}</p></div>`).join(''):`<div class="empty">${a.length?t.noMatches:t.noSaved}<br>${a.length?'':t.createFirst}</div>`}
 
 function startEditDevotional(i){const a=JSON.parse(localStorage.getItem('devotionals')||'[]');const d=a[i];if(!d)return;document.getElementById('scripture').value=d.scripture||'';document.getElementById('observation').value=d.observation||'';document.getElementById('application').value=d.application||'';document.getElementById('prayer').value=d.prayer||'';document.getElementById('devDate').textContent=formatDevotionalDate(d.dateISO||d.date);window.editingDevotionalIndex=i;show('create')}
-function renderRecent(){let a=JSON.parse(localStorage.getItem('devotionals')||'[]');const t=UI[localStorage.getItem('appLanguage')||'EN']||UI.EN;document.getElementById('recent').innerHTML=a.slice(0,3).map((d,i)=>`<div class="card" role="button" tabindex="0" style="cursor:pointer" aria-label="${t.view}" onclick="viewDevotional(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewDevotional(${i})}"><b>${esc(formatDevotionalDate(d.dateISO||d.date))}</b><p>${esc(d.scripture||d.application||d.observation||'')}</p></div>`).join('')||`<div class="empty">${t.noRecent}</div>`}
+function renderRecent(){let a=JSON.parse(localStorage.getItem('devotionals')||'[]');const t=UI[localStorage.getItem('appLanguage')||'EN']||UI.EN;document.getElementById('recent').innerHTML=a.slice(0,1).map((d,i)=>`<div class="card" role="button" tabindex="0" style="cursor:pointer" aria-label="${t.view}" onclick="viewDevotional(${i})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();viewDevotional(${i})}"><b>${esc(formatDevotionalDate(d.dateISO||d.date))}</b><p>${esc(d.scripture||d.application||d.observation||'')}</p></div>`).join('')||`<div class="empty">${t.noRecent}</div>`}
 function removeDev(i){let a=JSON.parse(localStorage.getItem('devotionals')||'[]');a.splice(i,1);localStorage.setItem('devotionals',JSON.stringify(a));renderSaved()}
 function clearSaved(){if(confirm((UI[localStorage.getItem('appLanguage')||'EN']||UI.EN).clearConfirm)){localStorage.removeItem('devotionals');renderSaved();toast((UI[localStorage.getItem('appLanguage')||'EN']||UI.EN).clearedMsg)}}
 let editingChurchNoteId=null;
